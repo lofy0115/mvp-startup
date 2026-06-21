@@ -1,0 +1,275 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// 用户与项目
+// ============================================================
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  projects  Project[]
+}
+
+// 创业项目
+model Project {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  phase     Int      @default(1) // 1-4，对应四个阶段
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  complaints        Complaint[]
+  clusters          Cluster[]
+  painPoints        PainPoint[]
+  personas          Persona[]
+  canvas            Canvas[]
+  valuePropositions ValueProposition[]
+  profitModels      ProfitModel[]
+  metrics           Metric[]
+  mvps              MVP[]
+  feedbacks         Feedback[]
+}
+
+// ============================================================
+// 第一阶段：理解用户（数据 → 洞察）
+// ============================================================
+
+// 抱怨收集
+model Complaint {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rawText    String
+  cleanedText String?
+  source     String?  // 访谈/问卷/售后/社媒
+  timestamp  DateTime?
+  createdAt  DateTime @default(now())
+
+  clusterId  String?
+  cluster    Cluster? @relation(fields: [clusterId], references: [id])
+}
+
+// 聚类结果
+model Cluster {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  dimension   String   // pain_point / user_type / scenario
+  type        String   @default("system") // system / user (系统推荐/用户自定义)
+  complaintIds String  // JSON array of complaint IDs
+  count       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  complaints  Complaint[]
+  painPoints  PainPoint[]
+}
+
+// 痛点（三维排序）
+model PainPoint {
+  id                   String   @id @default(cuid())
+  projectId            String
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clusterId            String?
+  cluster              Cluster? @relation(fields: [clusterId], references: [id])
+  name                 String
+  description          String?
+  frequencyScore       Float    @default(5) // 1-10
+  intensityScore       Int      @default(5) // 1-10
+  paymentWillingness   Int      @default(5) // 1-10
+  compositeScore       Float    @default(0) // frequency × intensity × paymentWillingness / 100
+  rank                 Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  personas             PersonaPainPoint[]
+}
+
+// ============================================================
+// 第二阶段：验证机会（洞察 → 假设）
+// ============================================================
+
+// 用户画像
+model Persona {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  demographics String   // JSON: {ageRange, occupation, region, income, education}
+  behaviors   String   // JSON: {usageFrequency, paymentHabit, decisionCycle, infoChannel}
+  description String?  // 一句话描述
+  priority    Int      @default(3) // 1-5
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  painPoints   PersonaPainPoint[]
+  assumptions  Assumption[]
+  canvas       Canvas[]
+}
+
+// 画像-痛点关联
+model PersonaPainPoint {
+  id        String    @id @default(cuid())
+  personaId String
+  persona   Persona   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  painPointId String
+  painPoint PainPoint @relation(fields: [painPointId], references: [id], onDelete: Cascade)
+
+  @@unique([personaId, painPointId])
+}
+
+// 商业假设
+model Assumption {
+  id               String   @id @default(cuid())
+  personaId        String
+  persona          Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  type             String   // problem / solution / value / market / channel / retention
+  content          String
+  validationMethod String?  // interview / survey / data / competitor / intuition
+  validationStatus String   @default("pending") // pending / validating / validated / disproved
+  evidence         String?
+  priority         Int      @default(3) // P0-P3
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ============================================================
+// 画布（精益画布 + 商业画布）
+// ============================================================
+
+model Canvas {
+  id           String   @id @default(cuid())
+  personaId    String
+  persona      Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type         String   // lean / business
+  version      Int      @default(1)
+  data         String   // JSON: 9宫格内容
+  completeness Float    @default(0) // 完整度百分比
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ============================================================
+// 第三阶段：设计商业（假设 → 模式）
+// ============================================================
+
+// 价值主张
+model ValueProposition {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  personaId       String
+  jobs            String   // JSON array
+  pains           String   // JSON array
+  gains           String   // JSON array
+  painRelievers   String   // JSON array
+  gainsCreators   String   // JSON array
+  statement       String?  // 价值主张宣言
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// 利润模式
+model ProfitModel {
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  canvasId           String?
+  revenueModel       String   // subscription / one-time / transaction / freemium / hybrid
+  pricingTiers       String   // JSON array
+  expectedCustomers  String   // JSON: {year1, year2, year3}
+  avgCustomerValue   Float
+  grossMargin        Float?
+  cac                Float?
+  ltvCac             Float?
+  paybackPeriod      Float?  // 月
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ============================================================
+// 第四阶段：落地执行（模式 → 行动）
+// ============================================================
+
+// 关键指标
+model Metric {
+  id                   String   @id @default(cuid())
+  projectId            String
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type                 String   // north_star / primary / operational
+  name                 String
+  description          String?
+  currentValue         Float?
+  targetValue          Float?
+  targetDate           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// MVP设计
+model MVP {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  canvasId    String?
+  name        String
+  description String?
+  type        String   // landing_page / prototype / manual / functional
+  cost        Float?   // 预估成本
+  timeline    String?  // 预估周期
+  features    String   // JSON: P0/P1/P2/P3功能清单
+  status      String   @default("planning") // planning / developing / testing / launched
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks       Task[]
+  feedbacks   Feedback[]
+}
+
+// 落地任务
+model Task {
+  id          String   @id @default(cuid())
+  mvpId       String
+  mvp         MVP      @relation(fields: [mvpId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  owner       String?
+  status      String   @default("todo") // todo / in_progress / done
+  priority    Int      @default(3)
+  dependencies String? // JSON array of task IDs
+  dueDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 用户反馈
+model Feedback {
+  id              String   @id @default(cuid())
+  mvpId           String?
+  mvp             MVP?     @relation(fields: [mvpId], references: [id], onDelete: SetNull)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source          String   // interview / survey / behavior / support / social
+  content         String
+  sentiment       String   @default("neutral") // positive / neutral / negative
+  relatedFeature  String?
+  createdAt       DateTime @default(now())
+}
